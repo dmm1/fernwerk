@@ -86,7 +86,9 @@ which builds on GitHub runners for Windows (`.msi`, `-setup.exe`), macOS (`.dmg`
 Apple Silicon and Intel) and Linux (`.deb`, `.rpm`, `.AppImage`), and attaches the
 installers to a draft GitHub release. Each installer gets a build provenance
 attestation, a follow-up job adds `SHA256SUMS.txt`, and once all of that has
-succeeded the release is published automatically. If any build fails, the release
+succeeded the release is published automatically, with notes listing every commit
+since the previous tag (preview them with `bash scripts/release-notes.sh <tag>`, which
+needs the tag to exist locally). If any build fails, the release
 stays a draft: fix the problem, delete the draft and the tag, and release again.
 
 ### Auto-updates

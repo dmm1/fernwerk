@@ -59,11 +59,9 @@ jobs:
           updaterJsonPreferNsis: true
           tagName: ${{ github.ref_name }}
           releaseName: Fernwerk ${{ github.ref_name }}
-          releaseBody: |
-            Download the installer for your OS from the assets below.
-
-            The installers aren't code-signed yet. Verify a download with
-            `gh attestation verify <file> --repo ${{ github.repository }}` or against `SHA256SUMS.txt`.
+          # Placeholder while building; the publish job replaces it with the
+          # notes from scripts/release-notes.sh.
+          releaseBody: Building installers…
           # Stays a draft until every build has uploaded; the publish job releases it.
           releaseDraft: true
           prerelease: false
@@ -101,9 +99,16 @@ jobs:
     needs: checksums
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the release
+      # Full history and tags, so the notes can find the previous release.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Write release notes and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release edit "$TAG" --draft=false --latest
+        run: |
+          bash scripts/release-notes.sh "$TAG" "$GH_REPO" > notes.md
+          cat notes.md
+          gh release edit "$TAG" --notes-file notes.md --draft=false --latest
