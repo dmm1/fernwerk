@@ -6,6 +6,8 @@ Fernwerk is an open-source SSH desktop client for Windows, macOS and Linux.
 - **SSH engine:** [`russh`](https://github.com/Eugeny/russh) in `crates/ssh-core`
 - **Terminal:** [xterm.js](https://xtermjs.org/) with WebGL rendering
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J0V829H58P)
+
 ## Layout
 
 ```bash
