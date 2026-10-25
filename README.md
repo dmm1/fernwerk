@@ -8,6 +8,14 @@ Fernwerk is an open-source SSH desktop client for Windows, macOS and Linux.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/J0V829H58P)
 
+## Screenshots
+
+| Unlock with your PIN | Saved connections |
+| :---: | :---: |
+| ![Start screen asking for the vault PIN](assets/home.png) | ![Connections overview with saved hosts](assets/connections.png) |
+| **Add a host** | **Connected** |
+| ![New host form with name, host, port, username and password](assets/connect.png) | ![Terminal session connected to a server](assets/online.png) |
+
 ## Layout
 
 ```bash
