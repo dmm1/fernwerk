@@ -228,6 +228,24 @@ button {
 
 .dot.connected {
   background: var(--ok);
+  animation: pulse 2s ease-out infinite;
+}
+
+/* A ring that grows out of the dot and fades, so the dot itself stays steady. */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(63 185 80 / 0.6);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px rgb(63 185 80 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.connected {
+    animation: none;
+  }
 }
 
 .dot.closed {

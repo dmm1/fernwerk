@@ -27,6 +27,9 @@ export function SessionView({ session: active, onExit, onLock }: Props) {
     if (!term) return;
 
     connect(active.target, term.size(), (event) => {
+      // A superseded connection (e.g. StrictMode's double effect) still reports
+      // its own "closed" when we shut it down; don't let it mark this view closed.
+      if (cancelled) return;
       if (event.type === "data") term.write(event.data);
       else if (event.type === "closed") {
         setStatus("closed");
