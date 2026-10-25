@@ -64,7 +64,7 @@ jobs:
 
             The installers aren't code-signed yet. Verify a download with
             `gh attestation verify <file> --repo ${{ github.repository }}` or against `SHA256SUMS.txt`.
-          # Review the uploaded installers, then publish the draft by hand.
+          # Stays a draft until every build has uploaded; the publish job releases it.
           releaseDraft: true
           prerelease: false
       # Proves each installer was built by this workflow from this commit.
@@ -94,3 +94,16 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release upload "$TAG" SHA256SUMS.txt --clobber
+
+  # Only reached when every build and the checksums succeeded, so installed
+  # apps never see a latest.json that is missing a platform.
+  publish:
+    needs: checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --latest

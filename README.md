@@ -84,16 +84,17 @@ with `origin/main`.
 The tag push starts [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which builds on GitHub runners for Windows (`.msi`, `-setup.exe`), macOS (`.dmg` for
 Apple Silicon and Intel) and Linux (`.deb`, `.rpm`, `.AppImage`), and attaches the
-installers to a **draft** GitHub release. Each installer gets a build provenance
-attestation, and a final job adds `SHA256SUMS.txt`. Check the assets, then publish
-the draft.
+installers to a draft GitHub release. Each installer gets a build provenance
+attestation, a follow-up job adds `SHA256SUMS.txt`, and once all of that has
+succeeded the release is published automatically. If any build fails, the release
+stays a draft: fix the problem, delete the draft and the tag, and release again.
 
 ### Auto-updates
 
 Installed apps check
 `https://github.com/dmm1/fernwerk/releases/latest/download/latest.json` at startup and
 every 6 hours, and offer "Restart & update" when a newer version exists. Drafts aren't
-"latest", so **an update reaches users only once you publish the draft.**
+"latest", so an update reaches users only once the release is published.
 
 Updates are verified against the public key in
 [`tauri.conf.json`](apps/desktop/src-tauri/tauri.conf.json) (`plugins.updater.pubkey`).
