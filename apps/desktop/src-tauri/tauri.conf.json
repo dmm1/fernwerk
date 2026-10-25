@@ -36,6 +36,19 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERERTZGNEY1QThENzI0NTQKUldSVUpOZW85ZlRtM2NwaGRVOEtHVTdWSTRUTzF0U0h6Q3NhT2NpbEQ2QitnTVNaVzRJbC9yeGUK",
+      "endpoints": [
+        "https://github.com/dmm1/fernwerk/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

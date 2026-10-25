@@ -197,6 +197,24 @@ button {
   padding: 4px 10px;
 }
 
+.update-banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--accent);
+}
+
+.update-banner .error {
+  color: var(--err);
+}
+
+.update-banner button {
+  padding: 4px 10px;
+}
+
 .dot {
   width: 8px;
   height: 8px;

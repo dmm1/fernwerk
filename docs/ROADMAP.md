@@ -32,5 +32,6 @@
 ## Product
 
 - [ ] End-to-end encrypted sync between devices
-- [ ] Auto-update (Tauri updater), code signing (Windows Trusted Signing, Apple notarization)
+- [x] Auto-update (Tauri updater, signed `latest.json` on GitHub Releases)
+- [ ] Code signing (SignPath Foundation for Windows, Apple Developer ID + notarization)
 - [ ] Crash reporting and opt-in telemetry

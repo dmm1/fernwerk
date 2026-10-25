@@ -3,6 +3,7 @@ import { HostManager } from "./HostManager";
 import { LockScreen } from "./LockScreen";
 import { SessionView, type ActiveSession } from "./SessionView";
 import { TitleBar } from "./TitleBar";
+import { UpdateBanner } from "./UpdateBanner";
 import { useIdleLock } from "./useIdleLock";
 import { vault, type VaultStatus } from "./vault";
 import "./styles.css";
@@ -31,6 +32,7 @@ export function App() {
   return (
     <div className="app">
       <TitleBar />
+      <UpdateBanner hasSession={session !== null} />
       <main className="app-main">
         {/* Locking hides a running session without disconnecting it. */}
         {session && (

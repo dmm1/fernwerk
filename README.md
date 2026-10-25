@@ -88,6 +88,22 @@ installers to a **draft** GitHub release. Each installer gets a build provenance
 attestation, and a final job adds `SHA256SUMS.txt`. Check the assets, then publish
 the draft.
 
+### Auto-updates
+
+Installed apps check
+`https://github.com/dmm1/fernwerk/releases/latest/download/latest.json` at startup and
+every 6 hours, and offer "Restart & update" when a newer version exists. Drafts aren't
+"latest", so **an update reaches users only once you publish the draft.**
+
+Updates are verified against the public key in
+[`tauri.conf.json`](apps/desktop/src-tauri/tauri.conf.json) (`plugins.updater.pubkey`).
+The release workflow signs them with the matching private key, which it reads from the
+`TAURI_SIGNING_PRIVATE_KEY` repository secret (plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+if the key has a password).
+
+> Keep a backup of the private key somewhere safe. If it's lost, installed copies can
+> never auto-update again; users would have to reinstall a build with a new public key.
+
 ## Installing a release
 
 Until the installers are code-signed, verify what you downloaded:

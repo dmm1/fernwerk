@@ -47,10 +47,16 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater bundles; the public key is in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tauriScript: pnpm tauri
           args: ${{ matrix.args }}
+          # latest.json, which installed apps poll via releases/latest/download.
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
           tagName: ${{ github.ref_name }}
           releaseName: Fernwerk ${{ github.ref_name }}
           releaseBody: |
@@ -68,6 +74,7 @@ jobs:
             target/**/bundle/msi/*.msi
             target/**/bundle/nsis/*.exe
             target/**/bundle/dmg/*.dmg
+            target/**/bundle/macos/*.app.tar.gz
             target/**/bundle/deb/*.deb
             target/**/bundle/rpm/*.rpm
             target/**/bundle/appimage/*.AppImage

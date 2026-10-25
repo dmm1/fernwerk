@@ -133,6 +133,8 @@ async fn ssh_close(state: State<'_, Arc<AppState>>, id: u32) -> Result<(), Strin
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             app.manage(Arc::new(AppState {
