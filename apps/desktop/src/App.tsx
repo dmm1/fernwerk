@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HostManager } from "./HostManager";
 import { LockScreen } from "./LockScreen";
 import { SessionView, type ActiveSession } from "./SessionView";
+import { TitleBar } from "./TitleBar";
 import { useIdleLock } from "./useIdleLock";
 import { vault, type VaultStatus } from "./vault";
 import "./styles.css";
@@ -29,14 +30,17 @@ export function App() {
 
   return (
     <div className="app">
-      {/* Locking hides a running session without disconnecting it. */}
-      {session && (
-        <div className="layer" hidden={!unlocked}>
-          <SessionView session={session} onExit={() => setSession(null)} onLock={lock} />
-        </div>
-      )}
-      {!unlocked && <LockScreen status={status} onChange={refresh} />}
-      {unlocked && !session && <HostManager onConnect={setSession} onLock={lock} />}
+      <TitleBar />
+      <main className="app-main">
+        {/* Locking hides a running session without disconnecting it. */}
+        {session && (
+          <div className="layer" hidden={!unlocked}>
+            <SessionView session={session} onExit={() => setSession(null)} onLock={lock} />
+          </div>
+        )}
+        {!unlocked && <LockScreen status={status} onChange={refresh} />}
+        {unlocked && !session && <HostManager onConnect={setSession} onLock={lock} />}
+      </main>
     </div>
   );
 }
