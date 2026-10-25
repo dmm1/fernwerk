@@ -1,0 +1,13 @@
+# Local OpenSSH server for development and integration tests.
+# ssh -p 2222 dev@127.0.0.1   (password: dev)
+services:
+  openssh:
+    image: lscr.io/linuxserver/openssh-server:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - USER_NAME=dev
+      - USER_PASSWORD=dev
+      - PASSWORD_ACCESS=true
+    ports:
+      - "127.0.0.1:2222:2222"

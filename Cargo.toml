@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+ssh-core = { path = "crates/ssh-core" }
+vault = { path = "crates/vault" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# Argon2 is ~10x slower unoptimized; keep PIN unlock snappy in `tauri dev`.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

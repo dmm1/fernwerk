@@ -1,0 +1,22 @@
+{
+  "name": "fernwerk",
+  "private": true,
+  "type": "module",
+  "description": "Open-source SSH desktop client for Windows, macOS and Linux",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @fernwerk/desktop tauri dev",
+    "build:desktop": "pnpm --filter @fernwerk/desktop tauri build",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test:server": "docker compose -f docker/compose.yml up -d"
+  },
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.10",
+    "typescript": "^7.0.2"
+  }
+}
