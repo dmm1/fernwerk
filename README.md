@@ -61,11 +61,27 @@ pnpm build:desktop   # installers in target/release/bundle/
 ```
 
 Builds are per-OS: build on Windows for `.msi`/`-setup.exe`, on macOS for
-`.dmg`/`.app`, on Linux for `.deb`/`.rpm`/`.AppImage` (or use CI runners for each).
-Release builds are unsigned for now, so Windows SmartScreen will warn on install.
+`.dmg`/`.app`, on Linux for `.deb`/`.rpm`/`.AppImage`. Release builds are unsigned
+for now, so Windows SmartScreen and macOS Gatekeeper will warn on install.
 
 The app icon source is `assets/icon.svg`. After changing it, run `pnpm icons` to
 regenerate `apps/desktop/src-tauri/icons/`.
+
+## Releasing
+
+```sh
+pnpm release patch   # or minor / major
+```
+
+This bumps the version (workspace `Cargo.toml`, the `package.json` files and
+`Cargo.lock`), commits `Release vX.Y.Z`, tags it and pushes to `origin/main`. It
+refuses to run off `main`, with uncommitted changes, or when `main` isn't in sync
+with `origin/main`.
+
+The tag push starts [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds on GitHub runners for Windows (`.msi`, `-setup.exe`), macOS (`.dmg` for
+Apple Silicon and Intel) and Linux (`.deb`, `.rpm`, `.AppImage`), and attaches the
+installers to a **draft** GitHub release. Check the assets, then publish the draft.
 
 ## Checks
 
