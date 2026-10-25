@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: write
+  # Build provenance attestations (actions/attest-build-provenance).
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -50,7 +53,37 @@ jobs:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Fernwerk ${{ github.ref_name }}
-          releaseBody: See the assets below to download and install this version.
+          releaseBody: |
+            Download the installer for your OS from the assets below.
+
+            The installers aren't code-signed yet. Verify a download with
+            `gh attestation verify <file> --repo ${{ github.repository }}` or against `SHA256SUMS.txt`.
           # Review the uploaded installers, then publish the draft by hand.
           releaseDraft: true
           prerelease: false
+      # Proves each installer was built by this workflow from this commit.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            target/**/bundle/msi/*.msi
+            target/**/bundle/nsis/*.exe
+            target/**/bundle/dmg/*.dmg
+            target/**/bundle/deb/*.deb
+            target/**/bundle/rpm/*.rpm
+            target/**/bundle/appimage/*.AppImage
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add SHA256SUMS.txt to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --dir assets
+          cd assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber

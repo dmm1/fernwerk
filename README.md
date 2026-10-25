@@ -61,8 +61,9 @@ pnpm build:desktop   # installers in target/release/bundle/
 ```
 
 Builds are per-OS: build on Windows for `.msi`/`-setup.exe`, on macOS for
-`.dmg`/`.app`, on Linux for `.deb`/`.rpm`/`.AppImage`. Release builds are unsigned
-for now, so Windows SmartScreen and macOS Gatekeeper will warn on install.
+`.dmg`/`.app`, on Linux for `.deb`/`.rpm`/`.AppImage`. Release builds aren't
+code-signed yet (macOS builds are only ad-hoc signed), so Windows SmartScreen and
+macOS Gatekeeper will warn on install.
 
 The app icon source is `assets/icon.svg`. After changing it, run `pnpm icons` to
 regenerate `apps/desktop/src-tauri/icons/`.
@@ -81,7 +82,25 @@ with `origin/main`.
 The tag push starts [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which builds on GitHub runners for Windows (`.msi`, `-setup.exe`), macOS (`.dmg` for
 Apple Silicon and Intel) and Linux (`.deb`, `.rpm`, `.AppImage`), and attaches the
-installers to a **draft** GitHub release. Check the assets, then publish the draft.
+installers to a **draft** GitHub release. Each installer gets a build provenance
+attestation, and a final job adds `SHA256SUMS.txt`. Check the assets, then publish
+the draft.
+
+## Installing a release
+
+Until the installers are code-signed, verify what you downloaded:
+
+```sh
+gh attestation verify Fernwerk_0.1.1_x64-setup.exe --repo dmm1/fernwerk
+# or compare against SHA256SUMS.txt from the same release
+```
+
+- **Windows:** SmartScreen shows "Windows protected your PC". Click
+  **More info → Run anyway**.
+- **macOS:** the first launch is blocked. Open **System Settings → Privacy & Security**
+  and click **Open Anyway** next to Fernwerk (or run `xattr -dr com.apple.quarantine
+  /Applications/Fernwerk.app`).
+- **Linux:** no extra steps.
 
 ## Checks
 
