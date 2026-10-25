@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Badge, Button } from "@dmm1/daemon-ui";
 import { Terminal, type TerminalHandle } from "@fernwerk/terminal";
 import { connect, type ConnectTarget, type Session } from "./ssh";
 
@@ -8,6 +9,12 @@ export interface ActiveSession {
 }
 
 type Status = "connecting" | "connected" | "closed";
+
+const STATUS: Record<Status, { label: string; variant: "warning" | "success" | "error" }> = {
+  connecting: { label: "Connecting", variant: "warning" },
+  connected: { label: "Online", variant: "success" },
+  closed: { label: "Closed", variant: "error" },
+};
 
 interface Props {
   session: ActiveSession;
@@ -58,17 +65,24 @@ export function SessionView({ session: active, onExit, onLock }: Props) {
     };
   }, [active]);
 
+  const state = STATUS[status];
+
   return (
     <div className="session">
-      <header className="session-bar">
-        <span className={`dot ${status}`} />
-        <span className="title">{active.title}</span>
-        {error && <span className="error">{error}</span>}
-        <span className="spacer" />
-        <button className="secondary" onClick={onLock}>
+      <header className="flex flex-none items-center gap-3 border-b border-border bg-background-panel px-3 py-2">
+        <Badge variant={state.variant} className="gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-current motion-safe:animate-pulse" />
+          {state.label}
+        </Badge>
+        <span className="truncate font-mono text-xs text-foreground-bright">{active.title}</span>
+        {error && <span className="truncate text-xs text-error">{error}</span>}
+        <span className="flex-1" />
+        <Button size="sm" variant="outline" onClick={onLock}>
           Lock
-        </button>
-        <button onClick={onExit}>{status === "closed" ? "Back" : "Disconnect"}</button>
+        </Button>
+        <Button size="sm" onClick={onExit}>
+          {status === "closed" ? "Back" : "Disconnect"}
+        </Button>
       </header>
       <div className="session-term">
         <Terminal
