@@ -64,6 +64,9 @@ Builds are per-OS: build on Windows for `.msi`/`-setup.exe`, on macOS for
 `.dmg`/`.app`, on Linux for `.deb`/`.rpm`/`.AppImage` (or use CI runners for each).
 Release builds are unsigned for now, so Windows SmartScreen will warn on install.
 
+The app icon source is `assets/icon.svg`. After changing it, run `pnpm icons` to
+regenerate `apps/desktop/src-tauri/icons/`.
+
 ## Checks
 
 ```sh

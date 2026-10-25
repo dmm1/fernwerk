@@ -9,3 +9,6 @@ target/
 .DS_Store
 apps/desktop/src-tauri/gen/schemas/
 data/
+# `tauri icon` always emits mobile sets; we only ship desktop.
+apps/desktop/src-tauri/icons/android/
+apps/desktop/src-tauri/icons/ios/

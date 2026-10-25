@@ -8,6 +8,11 @@
       <stop offset="0" stop-color="#5EF2C4"/>
       <stop offset="1" stop-color="#2BB3E0"/>
     </linearGradient>
+    <!-- User-space so the flat cursor line (zero-height bbox) still gets painted. -->
+    <linearGradient id="prompt" gradientUnits="userSpaceOnUse" x1="262" y1="452" x2="520" y2="612">
+      <stop offset="0" stop-color="#5EF2C4"/>
+      <stop offset="1" stop-color="#2BB3E0"/>
+    </linearGradient>
     <linearGradient id="win" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#22374A"/>
       <stop offset="1" stop-color="#15222F"/>
@@ -37,7 +42,7 @@
   </g>
 
   <!-- Prompt chevron and cursor -->
-  <g filter="url(#glow)" fill="none" stroke="url(#accent)" stroke-linecap="round" stroke-linejoin="round">
+  <g filter="url(#glow)" fill="none" stroke="url(#prompt)" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="262,452 362,532 262,612" stroke-width="44"/>
     <line x1="408" y1="612" x2="520" y2="612" stroke-width="44"/>
   </g>
