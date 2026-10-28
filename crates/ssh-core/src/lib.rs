@@ -11,6 +11,7 @@ use russh::keys::PublicKeyOrCertificate;
 use russh::{ChannelMsg, Disconnect};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use zeroize::Zeroizing;
 
 pub use host_keys::{
     AcceptAnyHostKey, HostKey, HostKeyPrompt, HostKeyVerifier, KnownHostsError, KnownHostsFile,
@@ -42,7 +43,7 @@ fn default_term() -> String {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Auth {
-    Password { password: String },
+    Password { password: Zeroizing<String> },
     // TODO: PublicKey { key_id }, Agent, KeyboardInteractive
 }
 
@@ -79,8 +80,36 @@ pub enum Error {
     AuthFailed,
     #[error("{0}")]
     KnownHosts(String),
+    #[error("timed out connecting to {0}")]
+    Timeout(String),
+    #[error("server did not present a host key")]
+    NoHostKey,
     #[error(transparent)]
     Ssh(#[from] russh::Error),
+}
+
+/// How a presented host key compares with the one recorded for that host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyStatus {
+    /// Matches the recorded key.
+    Known,
+    /// No key is recorded for this host yet.
+    Unknown,
+    /// A different key is recorded for this host.
+    Changed,
+}
+
+/// Result of [`check_host_key`]: the key a server presents and how it compares.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyCheck {
+    pub algorithm: String,
+    /// OpenSSH-style `SHA256:...` fingerprint of the presented key.
+    pub fingerprint: String,
+    /// Fingerprint recorded for this host, if any.
+    pub recorded_fingerprint: Option<String>,
+    pub status: KeyStatus,
 }
 
 /// A live interactive shell. Dropping `commands` closes the session.
@@ -115,6 +144,23 @@ impl<V: HostKeyVerifier> client::Handler for ClientHandler<V> {
     }
 }
 
+/// Bounds the TCP connect, so an unreachable host fails promptly.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// A server that accepts the connection but never answers the login.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn tcp_connect(host: &str, port: u16) -> Result<tokio::net::TcpStream, Error> {
+    match tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        tokio::net::TcpStream::connect((host, port)),
+    )
+    .await
+    {
+        Err(_) => Err(Error::Timeout(host.to_owned())),
+        Ok(stream) => stream.map_err(|e| Error::Ssh(russh::Error::IO(e))),
+    }
+}
+
 /// Connects, authenticates, opens a PTY shell and spawns the I/O pump.
 pub async fn connect<V: HostKeyVerifier>(
     opts: ConnectOptions,
@@ -132,28 +178,31 @@ pub async fn connect<V: HostKeyVerifier>(
         failure: failure.clone(),
     };
 
-    let mut handle: Handle<ClientHandler<V>> =
-        client::connect(config, (opts.host.as_str(), opts.port), handler)
-            .await
-            .map_err(|e| match e {
-                russh::Error::UnknownKey => {
-                    let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
-                    match failure {
-                        Some(message) => Error::KnownHosts(message),
-                        None => Error::HostKeyRejected {
-                            host: opts.host.clone(),
-                        },
-                    }
+    // Only the TCP connect is bounded here: the handshake may wait on the user to
+    // confirm a host key, which has its own timeout.
+    let stream = tcp_connect(&opts.host, opts.port).await?;
+    let mut handle: Handle<ClientHandler<V>> = client::connect_stream(config, stream, handler)
+        .await
+        .map_err(|e| match e {
+            russh::Error::UnknownKey => {
+                let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
+                match failure {
+                    Some(message) => Error::KnownHosts(message),
+                    None => Error::HostKeyRejected {
+                        host: opts.host.clone(),
+                    },
                 }
-                other => Error::Ssh(other),
-            })?;
+            }
+            other => Error::Ssh(other),
+        })?;
 
     let authed = match &opts.auth {
-        Auth::Password { password } => {
-            handle
-                .authenticate_password(&opts.username, password)
-                .await?
-        }
+        Auth::Password { password } => tokio::time::timeout(
+            AUTH_TIMEOUT,
+            handle.authenticate_password(&opts.username, password.as_str()),
+        )
+        .await
+        .map_err(|_| Error::Timeout(opts.host.clone()))??,
     };
     if !authed.success() {
         return Err(Error::AuthFailed);
@@ -172,6 +221,76 @@ pub async fn connect<V: HostKeyVerifier>(
     Ok(Session {
         commands: cmd_tx,
         events: evt_rx,
+    })
+}
+
+struct ProbeHandler {
+    host: String,
+    port: u16,
+    seen: Arc<std::sync::Mutex<Option<HostKey>>>,
+}
+
+impl client::Handler for ProbeHandler {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        let host_key = HostKey::new(&self.host, self.port, &key.public_key());
+        *self.seen.lock().unwrap_or_else(|p| p.into_inner()) = Some(host_key);
+        // Accept so the handshake completes. Nothing is authenticated or recorded.
+        Ok(true)
+    }
+}
+
+/// Reads the key a server presents and compares it with the recorded one. Stops after
+/// the handshake: no login, no shell, and nothing is written to `known_hosts`.
+pub async fn check_host_key(
+    host: &str,
+    port: u16,
+    known_hosts: &KnownHostsFile,
+) -> Result<KeyCheck, Error> {
+    let seen = Arc::new(std::sync::Mutex::new(None));
+    let handler = ProbeHandler {
+        host: host.to_owned(),
+        port,
+        seen: seen.clone(),
+    };
+    let config = Arc::new(client::Config::default());
+    let stream = tcp_connect(host, port).await?;
+    let handle = match tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        client::connect_stream(config, stream, handler),
+    )
+    .await
+    {
+        Err(_) => return Err(Error::Timeout(host.to_owned())),
+        Ok(result) => result?,
+    };
+    let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+
+    let key = seen
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+        .ok_or(Error::NoHostKey)?;
+    let trust = known_hosts
+        .lookup(&key)
+        .map_err(|e| Error::KnownHosts(e.to_string()))?;
+    let recorded_fingerprint = known_hosts
+        .recorded_fingerprint(host, port)
+        .map_err(|e| Error::KnownHosts(e.to_string()))?;
+    let status = match trust {
+        Trust::Known => KeyStatus::Known,
+        Trust::Unknown => KeyStatus::Unknown,
+        Trust::Changed { .. } => KeyStatus::Changed,
+    };
+    Ok(KeyCheck {
+        algorithm: key.algorithm,
+        fingerprint: key.fingerprint,
+        recorded_fingerprint,
+        status,
     })
 }
 

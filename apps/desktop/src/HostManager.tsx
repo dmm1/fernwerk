@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   AlertDescription,
@@ -25,6 +25,7 @@ import {
   Label,
 } from "@dmm1/daemon-ui";
 import type { ActiveSession } from "./SessionView";
+import { FingerprintDialog, type FingerprintState } from "./FingerprintDialog";
 import { vault, type HostInput, type HostSummary, type PasswordChange } from "./vault";
 
 interface Props {
@@ -42,6 +43,8 @@ export function HostManager({ onConnect, onLock }: Props) {
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HostSummary | null>(null);
+  const [fingerprint, setFingerprint] = useState<FingerprintState | null>(null);
+  const fingerprintCheck = useRef(0);
 
   const reload = useCallback(() => {
     vault.listHosts().then(setHosts, (e) => setError(String(e)));
@@ -56,6 +59,26 @@ export function HostManager({ onConnect, onLock }: Props) {
   async function remove(host: HostSummary) {
     await vault.deleteHost(host.id).catch((e) => setError(String(e)));
     reload();
+  }
+
+  async function checkFingerprint(host: HostSummary) {
+    const target = { title: titleOf(host), address: `${host.host}:${host.port}` };
+    // Only the latest check may update the dialog: closing it or starting another
+    // check makes any reply still in flight stale.
+    const check = ++fingerprintCheck.current;
+    const current = () => check === fingerprintCheck.current;
+    setFingerprint(target);
+    try {
+      const result = await vault.checkHostKey(host.id);
+      if (current()) setFingerprint({ ...target, result });
+    } catch (e) {
+      if (current()) setFingerprint({ ...target, error: String(e) });
+    }
+  }
+
+  function closeFingerprint() {
+    fingerprintCheck.current++;
+    setFingerprint(null);
   }
 
   if (mode.kind === "edit") {
@@ -132,6 +155,9 @@ export function HostManager({ onConnect, onLock }: Props) {
                   <Button size="sm" onClick={() => connect(h)}>
                     Connect
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => void checkFingerprint(h)}>
+                    Fingerprint
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setMode({ kind: "edit", host: h })}>
                     Edit
                   </Button>
@@ -149,6 +175,8 @@ export function HostManager({ onConnect, onLock }: Props) {
           ))}
         </ul>
       )}
+
+      <FingerprintDialog state={fingerprint} onClose={closeFingerprint} />
 
       <AlertDialog
         open={pendingDelete !== null}

@@ -9,8 +9,9 @@ license.workspace = true
 russh = { version = "0.64.1", default-features = false, features = ["ring", "flate2", "rsa"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["sync", "macros", "rt"] }
+tokio = { version = "1.54.1", features = ["sync", "macros", "net", "rt", "time"] }
 tracing = "0.1.44"
+zeroize = { version = "1.9.1", features = ["serde"] }
 
 [dev-dependencies]
 base64 = "0.22"

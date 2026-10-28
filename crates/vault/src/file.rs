@@ -24,6 +24,12 @@ use crate::{Error, Result};
 const FORMAT: &str = "fernwerk-vault";
 const VERSION: u32 = 1;
 
+/// Upper bounds on KDF cost read from the file, so a tampered header can't make
+/// unlocking allocate gigabytes before decryption fails.
+const MAX_MEMORY_KIB: u32 = 1024 * 1024;
+const MAX_ITERATIONS: u32 = 20;
+const MAX_PARALLELISM: u32 = 16;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KdfParams {
@@ -133,9 +139,26 @@ pub(crate) fn write(path: &Path, key: &[u8; 32], kdf: &KdfParams, plaintext: &[u
         std::fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, json)?;
+    write_private(&tmp, &json)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+/// Writes `bytes` to `path` readable by the owner only, and flushes them to disk so
+/// the rename that follows can't publish an empty file after a crash.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// A successfully decrypted vault file.
@@ -152,6 +175,12 @@ pub(crate) fn read(path: &Path, pin: &str, device_secret: &[u8]) -> Result<Opene
         return Err(Error::Corrupt);
     }
     let nonce = XNonce::try_from(&file.nonce[..]).map_err(|_| Error::Corrupt)?;
+    if file.kdf.memory_kib > MAX_MEMORY_KIB
+        || file.kdf.iterations > MAX_ITERATIONS
+        || file.kdf.parallelism > MAX_PARALLELISM
+    {
+        return Err(Error::Corrupt);
+    }
     if Params::new(
         file.kdf.memory_kib,
         file.kdf.iterations,

@@ -12,7 +12,8 @@ use russh::server::{self, Auth, Msg, Session as ServerSession};
 use russh::{Channel, ChannelId};
 use sha1::Sha1;
 use ssh_core::{
-    Command, ConnectOptions, Error, Event, HostKey, HostKeyPrompt, KnownHostsFile, TrustOnFirstUse,
+    Command, ConnectOptions, Error, Event, HostKey, HostKeyPrompt, KeyStatus, KnownHostsFile,
+    TrustOnFirstUse,
 };
 use tokio::net::TcpListener;
 use tokio::time::timeout;
@@ -88,7 +89,7 @@ fn options(addr: SocketAddr, password: &str) -> ConnectOptions {
         port: addr.port(),
         username: USER.into(),
         auth: ssh_core::Auth::Password {
-            password: password.into(),
+            password: zeroize::Zeroizing::new(password.to_owned()),
         },
         term: "xterm-256color".into(),
         cols: 80,
@@ -372,4 +373,50 @@ async fn clearing_known_hosts_prompts_again() {
         .await
         .expect("connect after clearing");
     assert_eq!(prompts(&asked), 1);
+}
+
+#[tokio::test]
+async fn host_key_check_reports_unknown_then_known_without_recording() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("known_hosts");
+    let addr = start_server(random_key()).await;
+    let known = KnownHostsFile::new(&path);
+
+    // Unknown: nothing is recorded by just looking.
+    let check = ssh_core::check_host_key("127.0.0.1", addr.port(), &known)
+        .await
+        .expect("check");
+    assert_eq!(check.status, KeyStatus::Unknown);
+    assert!(check.recorded_fingerprint.is_none());
+    assert!(!path.exists(), "a check must not record the key");
+
+    // Known: after trusting it once, the same key compares equal.
+    let (verifier, _) = trust_with(&path, true);
+    ssh_core::connect(options(addr, PASSWORD), verifier)
+        .await
+        .expect("connect");
+    let check = ssh_core::check_host_key("127.0.0.1", addr.port(), &known)
+        .await
+        .expect("check");
+    assert_eq!(check.status, KeyStatus::Known);
+    assert_eq!(
+        check.recorded_fingerprint.as_deref(),
+        Some(check.fingerprint.as_str())
+    );
+}
+
+#[tokio::test]
+async fn host_key_check_reports_changed_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("known_hosts");
+    let (_, impostor) = record_then_swap_key(&path).await;
+
+    let check = ssh_core::check_host_key("127.0.0.1", impostor.port(), &KnownHostsFile::new(&path))
+        .await
+        .expect("check");
+    assert_eq!(check.status, KeyStatus::Changed);
+    assert_ne!(
+        check.recorded_fingerprint.as_deref(),
+        Some(check.fingerprint.as_str())
+    );
 }

@@ -20,16 +20,31 @@ pub struct Throttle {
 }
 
 impl Throttle {
-    /// Loads persisted state; a missing or unreadable file counts as a clean slate.
+    /// Loads persisted state. A missing file is a clean slate. A file that exists but
+    /// can't be read or parsed is treated as a used-up allowance, so damaging it
+    /// doesn't hand out free guesses: the next wrong PIN locks out.
     pub fn load(path: &Path) -> Self {
-        std::fs::read(path)
-            .ok()
-            .and_then(|raw| serde_json::from_slice(&raw).ok())
-            .unwrap_or_default()
+        match std::fs::read(path) {
+            Ok(raw) => serde_json::from_slice(&raw).unwrap_or_else(|_| Self::exhausted()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(_) => Self::exhausted(),
+        }
     }
 
+    fn exhausted() -> Self {
+        Self {
+            failures: FREE_ATTEMPTS - 1,
+            locked_until: None,
+        }
+    }
+
+    /// Writes beside the file and renames, so a crash never leaves a torn file.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        std::fs::write(path, serde_json::to_vec(self).expect("serializes"))
+        let mut tmp = path.to_path_buf().into_os_string();
+        tmp.push(".tmp");
+        let tmp = std::path::PathBuf::from(tmp);
+        std::fs::write(&tmp, serde_json::to_vec(self).expect("serializes"))?;
+        std::fs::rename(&tmp, path)
     }
 
     /// Seconds until another attempt is allowed, if currently locked out.
@@ -86,5 +101,18 @@ mod tests {
         t.record_success();
         assert_eq!(t.retry_after(1000), None);
         assert_eq!(t.attempts_left(), FREE_ATTEMPTS);
+    }
+
+    #[test]
+    fn corrupt_file_is_not_a_clean_slate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("attempts.json");
+        assert_eq!(Throttle::load(&path).attempts_left(), FREE_ATTEMPTS);
+
+        std::fs::write(&path, b"not json").unwrap();
+        let mut t = Throttle::load(&path);
+        assert_eq!(t.attempts_left(), 1);
+        t.record_failure(100);
+        assert_eq!(t.retry_after(100), Some(BASE_DELAY_SECS));
     }
 }

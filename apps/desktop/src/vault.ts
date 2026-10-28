@@ -4,6 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 
 export const MIN_PIN_LENGTH = 6;
 
+/** Shape of `ssh_core::KeyCheck` after serde. */
+export interface KeyCheck {
+  algorithm: string;
+  fingerprint: string;
+  recordedFingerprint: string | null;
+  status: "known" | "unknown" | "changed";
+}
+
 export type VaultState = "uninitialized" | "locked" | "unlocked";
 
 export interface VaultStatus {
@@ -49,4 +57,6 @@ export const vault = {
   listHosts: () => invoke<HostSummary[]>("hosts_list"),
   saveHost: (input: HostInput) => invoke<HostSummary>("host_save", { input }),
   deleteHost: (id: string) => invoke<void>("host_delete", { id }),
+  /** Reads the server's key without logging in; never records it. */
+  checkHostKey: (id: string) => invoke<KeyCheck>("host_key_check", { id }),
 };

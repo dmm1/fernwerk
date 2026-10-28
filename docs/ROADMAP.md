@@ -16,7 +16,7 @@
 - [ ] SSH agent: OpenSSH agent, Pageant, 1Password/Bitwarden agents; agent forwarding
 - [ ] Keyboard-interactive (2FA/OTP)
 - [ ] Change-PIN UI, configurable auto-lock, Windows Hello / Touch ID unlock
-- [ ] Zeroize passwords inside ssh-core after auth
+- [x] Zeroize passwords inside ssh-core (held as `Zeroizing<String>`)
 
 ## Core features
 

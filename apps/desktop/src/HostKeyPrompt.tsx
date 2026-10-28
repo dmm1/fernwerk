@@ -1,7 +1,7 @@
 // Asks before trusting a host key we have never seen, or one that differs from the
 // key recorded for that host. The Rust verifier waits on `host_key_respond`, so an
 // unanswered prompt times out and refuses the connection.
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@dmm1/daemon-ui";
+import { FingerprintRows } from "./FingerprintRows";
 
 // Shape of `HostKeyRequest` in src-tauri/src/host_key_prompt.rs.
 export interface HostKeyRequest {
@@ -46,11 +47,11 @@ export function HostKeyPrompt() {
   };
 
   const changed = current?.previousFingerprint != null;
-  const rows: [string, string | null][] = !current
+  const rows: [string, string][] = !current
     ? []
     : changed
       ? [
-          ["Saved", current.previousFingerprint],
+          ["Saved", current.previousFingerprint ?? ""],
           ["New", current.fingerprint],
           ["Type", current.algorithm],
         ]
@@ -71,16 +72,7 @@ export function HostKeyPrompt() {
                 : `${current.host}:${current.port} is new to this app. Only continue if you can confirm this fingerprint with the server's administrator.`)}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {current && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-xs break-all">
-            {rows.map(([label, value]) => (
-              <Fragment key={label}>
-                <dt className="text-foreground-dim">{label}</dt>
-                <dd>{value}</dd>
-              </Fragment>
-            ))}
-          </dl>
-        )}
+        {current && <FingerprintRows rows={rows} />}
         <AlertDialogFooter>
           <AlertDialogCancel>Reject</AlertDialogCancel>
           <AlertDialogAction onClick={() => answer(true)}>

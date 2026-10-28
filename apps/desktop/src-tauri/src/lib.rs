@@ -34,6 +34,14 @@ impl AppState {
         self.data_dir.join("unlock-attempts.json")
     }
 
+    /// Asks every live session to close, so locking the vault leaves nothing open.
+    async fn close_sessions(&self) {
+        let senders: Vec<_> = self.sessions.lock().await.values().cloned().collect();
+        for tx in senders {
+            let _ = tx.send(Command::Close).await;
+        }
+    }
+
     async fn send(&self, id: u32, cmd: Command) -> Result<(), String> {
         let tx = self.sessions.lock().await.get(&id).cloned();
         match tx {
@@ -103,7 +111,7 @@ async fn ssh_connect_saved(
             port: host.port,
             username: host.username.clone(),
             auth: Auth::Password {
-                password: password.to_string(),
+                password: password.clone(),
             },
             term: "xterm-256color".into(),
             cols,
@@ -178,6 +186,7 @@ pub fn run() {
             vault_cmds::hosts_list,
             vault_cmds::host_save,
             vault_cmds::host_delete,
+            vault_cmds::host_key_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
