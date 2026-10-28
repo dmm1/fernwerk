@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use ssh_core::KnownHostsFile;
 use tauri::State;
 use vault::{HostInput, HostSummary, KdfParams, Throttle, Vault};
 use zeroize::Zeroizing;
@@ -131,10 +132,16 @@ pub async fn vault_lock(state: State<'_, Arc<AppState>>) -> Result<(), String> {
 }
 
 /// Forgot-PIN escape hatch: permanently deletes all saved hosts and credentials.
+/// Works while locked, so host keys are cleared as a whole rather than per host.
 #[tauri::command]
 pub async fn vault_reset(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let mut guard = state.vault.lock().await;
     guard.take();
+    state
+        .host_keys
+        .known_hosts()
+        .clear()
+        .map_err(|e| format!("vault not deleted: {e}"))?;
     for path in [state.vault_path(), state.throttle_path()] {
         match std::fs::remove_file(&path) {
             Ok(()) => {}
@@ -152,6 +159,13 @@ pub async fn hosts_list(state: State<'_, Arc<AppState>>) -> Result<Vec<HostSumma
     Ok(guard.as_ref().ok_or("vault is locked")?.hosts())
 }
 
+/// Drops the recorded key for `host:port`, so the next connect to it prompts again.
+fn forget_host_key(known_hosts: &KnownHostsFile, host: &str, port: u16) -> Result<(), String> {
+    known_hosts.forget(host, port).map_err(|e| e.to_string())
+}
+
+/// Saves a host. Changing its address also forgets the key for the old address, so
+/// the new address prompts. If that can't be done, nothing is saved.
 #[tauri::command]
 pub async fn host_save(
     state: State<'_, Arc<AppState>>,
@@ -159,12 +173,30 @@ pub async fn host_save(
 ) -> Result<HostSummary, String> {
     let mut guard = state.vault.lock().await;
     let vault = guard.as_mut().ok_or("vault is locked")?;
+    let previous = input
+        .id
+        .as_ref()
+        .and_then(|id| vault.host(id))
+        .map(|h| (h.host.clone(), h.port));
+    if let Some((host, port)) = previous
+        && (host.as_str(), port) != (input.host.as_str(), input.port)
+    {
+        forget_host_key(state.host_keys.known_hosts(), &host, port)
+            .map_err(|e| format!("host not saved: {e}"))?;
+    }
     vault.upsert_host(input).map_err(|e| e.to_string())
 }
 
+/// Deletes a saved host and forgets its host key, so re-adding it prompts again.
+/// If the key cannot be removed the host is kept, so the user can retry.
 #[tauri::command]
 pub async fn host_delete(state: State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
     let mut guard = state.vault.lock().await;
     let vault = guard.as_mut().ok_or("vault is locked")?;
+    let host = vault.host(&id).ok_or("unknown host")?;
+    let (hostname, port) = (host.host.clone(), host.port);
+
+    forget_host_key(state.host_keys.known_hosts(), &hostname, port)
+        .map_err(|e| format!("host not deleted: {e}"))?;
     vault.delete_host(&id).map_err(|e| e.to_string())
 }

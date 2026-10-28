@@ -1,4 +1,5 @@
 mod device_key;
+mod host_key_prompt;
 mod vault_cmds;
 
 use std::collections::HashMap;
@@ -7,7 +8,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use device_key::DeviceKey;
-use ssh_core::{Auth, Command, ConnectOptions, Event, KnownHostsFile};
+use host_key_prompt::HostKeyPrompter;
+use ssh_core::{Auth, Command, ConnectOptions, Event, KnownHostsFile, TrustOnFirstUse};
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use tokio::sync::{Mutex, mpsc};
@@ -17,7 +19,7 @@ pub(crate) struct AppState {
     data_dir: PathBuf,
     next_id: AtomicU32,
     sessions: Mutex<HashMap<u32, mpsc::Sender<Command>>>,
-    known_hosts: Arc<KnownHostsFile>,
+    host_keys: Arc<TrustOnFirstUse<HostKeyPrompter>>,
     /// `Some` while unlocked. Dropping it wipes keys and passwords from memory.
     vault: Mutex<Option<Vault>>,
     device_key: DeviceKey,
@@ -45,7 +47,7 @@ impl AppState {
         opts: ConnectOptions,
         on_event: Channel<Event>,
     ) -> Result<u32, String> {
-        let session = ssh_core::connect(opts, self.known_hosts.clone())
+        let session = ssh_core::connect(opts, self.host_keys.clone())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -111,6 +113,16 @@ async fn ssh_connect_saved(
     state.start_session(opts, on_event).await
 }
 
+/// Answers a `host-key-prompt` event. `accept: false` refuses the connection.
+#[tauri::command]
+async fn host_key_respond(
+    state: State<'_, Arc<AppState>>,
+    id: u32,
+    accept: bool,
+) -> Result<(), String> {
+    state.host_keys.prompt().answer(id, accept).await
+}
+
 #[tauri::command]
 async fn ssh_write(state: State<'_, Arc<AppState>>, id: u32, data: Vec<u8>) -> Result<(), String> {
     state.send(id, Command::Data(data)).await
@@ -137,8 +149,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            let prompter = HostKeyPrompter::new(app.handle().clone());
             app.manage(Arc::new(AppState {
-                known_hosts: Arc::new(KnownHostsFile::new(data_dir.join("known_hosts"))),
+                host_keys: Arc::new(TrustOnFirstUse::new(
+                    KnownHostsFile::new(data_dir.join("known_hosts")),
+                    prompter,
+                )),
                 device_key: DeviceKey::new(&data_dir),
                 data_dir,
                 next_id: AtomicU32::new(1),
@@ -150,6 +166,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ssh_connect,
             ssh_connect_saved,
+            host_key_respond,
             ssh_write,
             ssh_resize,
             ssh_close,

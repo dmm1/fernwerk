@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { HostKeyPrompt } from "./HostKeyPrompt";
 import { HostManager } from "./HostManager";
 import { LockScreen } from "./LockScreen";
 import { SessionView, type ActiveSession } from "./SessionView";
@@ -33,6 +34,7 @@ export function App() {
     <div className="app">
       <TitleBar />
       <UpdateBanner hasSession={session !== null} />
+      <HostKeyPrompt />
       <main className="app-main">
         {/* Locking hides a running session without disconnecting it. */}
         {session && (

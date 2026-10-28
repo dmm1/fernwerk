@@ -9,9 +9,9 @@
 - [x] PIN-locked vault: Argon2id(PIN + OS-keyring device secret) -> XChaCha20-Poly1305,
       throttled unlock, idle auto-lock, passwords never sent to the UI
 
-## Security (before any public release)
+## Security
 
-- [ ] Interactive host key prompt (show fingerprint, accept/reject) instead of silent TOFU
+- [x] Interactive host key prompt (show fingerprint, accept/reject) instead of silent TOFU
 - [ ] Public key auth: ed25519/RSA/ECDSA, encrypted keys, `.ppk` import
 - [ ] SSH agent: OpenSSH agent, Pageant, 1Password/Bitwarden agents; agent forwarding
 - [ ] Keyboard-interactive (2FA/OTP)

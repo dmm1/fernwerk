@@ -12,7 +12,10 @@ use russh::{ChannelMsg, Disconnect};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-pub use host_keys::{AcceptAnyHostKey, HostKey, HostKeyVerifier, KnownHostsFile};
+pub use host_keys::{
+    AcceptAnyHostKey, HostKey, HostKeyPrompt, HostKeyVerifier, KnownHostsError, KnownHostsFile,
+    Trust, TrustOnFirstUse,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +77,8 @@ pub enum Error {
     HostKeyRejected { host: String },
     #[error("authentication failed")]
     AuthFailed,
+    #[error("{0}")]
+    KnownHosts(String),
     #[error(transparent)]
     Ssh(#[from] russh::Error),
 }
@@ -88,6 +93,8 @@ struct ClientHandler<V> {
     host: String,
     port: u16,
     verifier: Arc<V>,
+    /// Set when the verifier fails, so `connect` can say why instead of "rejected".
+    failure: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl<V: HostKeyVerifier> client::Handler for ClientHandler<V> {
@@ -98,7 +105,13 @@ impl<V: HostKeyVerifier> client::Handler for ClientHandler<V> {
         key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
         let host_key = HostKey::new(&self.host, self.port, &key.public_key());
-        Ok(self.verifier.verify(&host_key).await)
+        match self.verifier.verify(&host_key).await {
+            Ok(accepted) => Ok(accepted),
+            Err(e) => {
+                *self.failure.lock().unwrap_or_else(|p| p.into_inner()) = Some(e.to_string());
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -111,19 +124,27 @@ pub async fn connect<V: HostKeyVerifier>(
         keepalive_interval: Some(Duration::from_secs(30)),
         ..Default::default()
     });
+    let failure = Arc::new(std::sync::Mutex::new(None));
     let handler = ClientHandler {
         host: opts.host.clone(),
         port: opts.port,
         verifier,
+        failure: failure.clone(),
     };
 
     let mut handle: Handle<ClientHandler<V>> =
         client::connect(config, (opts.host.as_str(), opts.port), handler)
             .await
             .map_err(|e| match e {
-                russh::Error::UnknownKey => Error::HostKeyRejected {
-                    host: opts.host.clone(),
-                },
+                russh::Error::UnknownKey => {
+                    let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
+                    match failure {
+                        Some(message) => Error::KnownHosts(message),
+                        None => Error::HostKeyRejected {
+                            host: opts.host.clone(),
+                        },
+                    }
+                }
                 other => Error::Ssh(other),
             })?;
 

@@ -4613,9 +4613,12 @@ dependencies = [
 name = "ssh-core"
 version = "1.0.0"
 dependencies = [
+ "base64 0.22.1",
+ "hmac",
  "rand",
  "russh",
  "serde",
+ "sha1",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
