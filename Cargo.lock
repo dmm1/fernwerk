@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "fernwerk-desktop"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "keyring",
  "serde",
@@ -4807,7 +4807,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-core"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.4.3",
@@ -5867,7 +5867,7 @@ dependencies = [
 
 [[package]]
 name = "vault"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "argon2",
  "base64 0.23.1",
