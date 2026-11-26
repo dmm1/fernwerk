@@ -29,6 +29,8 @@ const VERSION: u32 = 1;
 const MAX_MEMORY_KIB: u32 = 1024 * 1024;
 const MAX_ITERATIONS: u32 = 20;
 const MAX_PARALLELISM: u32 = 16;
+/// Argon2 needs at least 8 salt bytes; anything outside this range is a tampered file.
+const SALT_LEN: std::ops::RangeInclusive<usize> = 8..=64;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,20 +136,24 @@ pub(crate) fn write(path: &Path, key: &[u8; 32], kdf: &KdfParams, plaintext: &[u
     };
     let json = serde_json::to_vec_pretty(&file).map_err(|_| Error::Corrupt)?;
 
-    // Write-then-rename so a crash never leaves a half-written vault.
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("tmp");
-    write_private(&tmp, &json)?;
-    std::fs::rename(&tmp, path)?;
+    write_private_file(path, &json)?;
     Ok(())
 }
 
-/// Writes `bytes` to `path` readable by the owner only, and flushes them to disk so
-/// the rename that follows can't publish an empty file after a crash.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// Atomically replaces `path` with `bytes`, readable by the owner only.
+///
+/// Writes to `<path>.tmp`, flushes it to disk and renames it over `path`, so a crash
+/// never leaves a half-written file. On Windows the file inherits the per-user ACL of
+/// the app data folder.
+pub fn write_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp);
 
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -156,9 +162,28 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
+    let mut file = options.open(&tmp)?;
+    // `mode` only applies when the file is created, so fix up a leftover temp file too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
     file.write_all(bytes)?;
-    file.sync_all()
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&tmp, path)
+}
+
+/// Creates `dir` if needed and, on Unix, makes it accessible to its owner only.
+pub fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 /// A successfully decrypted vault file.
@@ -178,6 +203,7 @@ pub(crate) fn read(path: &Path, pin: &str, device_secret: &[u8]) -> Result<Opene
     if file.kdf.memory_kib > MAX_MEMORY_KIB
         || file.kdf.iterations > MAX_ITERATIONS
         || file.kdf.parallelism > MAX_PARALLELISM
+        || !SALT_LEN.contains(&file.kdf.salt.len())
     {
         return Err(Error::Corrupt);
     }

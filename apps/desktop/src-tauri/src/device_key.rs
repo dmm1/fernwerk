@@ -1,7 +1,9 @@
 //! The device secret mixed into the vault key. It lives in the OS keyring
 //! (Windows Credential Manager, macOS Keychain, Secret Service on Linux) so the
-//! vault file alone is useless. If no keyring is available we fall back to a
-//! file next to the vault, which still requires the PIN but loses that protection.
+//! vault file alone is useless. If no keyring is available we fall back to an
+//! owner-only file next to the vault, which still requires the PIN but loses that
+//! protection; the UI warns about it, and the secret moves into the keyring at the
+//! next unlock once one is available.
 
 use std::path::{Path, PathBuf};
 
@@ -55,13 +57,37 @@ impl DeviceKey {
             }
             Err(e) => {
                 tracing::warn!(error = %e, "OS keyring unavailable, storing device key in a file");
-                if let Some(dir) = self.fallback.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                std::fs::write(&self.fallback, secret.as_ref()).map_err(|e| e.to_string())?;
+                vault::write_private_file(&self.fallback, secret.as_ref())
+                    .map_err(|e| e.to_string())?;
             }
         }
         Ok(Zeroizing::new(secret.to_vec()))
+    }
+
+    /// True when the secret is kept in the fallback file instead of the OS keyring.
+    pub fn in_file(&self) -> bool {
+        self.fallback.exists()
+    }
+
+    /// Moves a secret kept in the fallback file into the OS keyring, if one has become
+    /// available. The file is deleted only after the keyring copy reads back intact.
+    pub fn move_to_keyring(&self, secret: &[u8]) {
+        if !self.in_file() {
+            return;
+        }
+        let stored = self.entry().and_then(|e| {
+            e.set_secret(secret)?;
+            e.get_secret()
+        });
+        match stored {
+            Ok(read_back) if read_back == secret => {
+                if let Err(e) = std::fs::remove_file(&self.fallback) {
+                    tracing::warn!(error = %e, "device key moved to the OS keyring, but its file remains");
+                }
+            }
+            Ok(_) => tracing::warn!("OS keyring returned a different device key; keeping the file"),
+            Err(e) => tracing::debug!(error = %e, "OS keyring still unavailable"),
+        }
     }
 
     pub fn delete(&self) {

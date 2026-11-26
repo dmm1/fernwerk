@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button } from "@dmm1/daemon-ui";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Terminal, type TerminalHandle } from "@fernwerk/terminal";
 import { connect, type ConnectTarget, type Session } from "./ssh";
 
@@ -89,6 +90,8 @@ export function SessionView({ session: active, onExit, onLock }: Props) {
           ref={termRef}
           onInput={(d) => sessionRef.current?.write(d)}
           onResize={({ cols, rows }) => sessionRef.current?.resize(cols, rows)}
+          // The system browser, never an in-app window.
+          onLink={(url) => void openUrl(url).catch(() => {})}
         />
       </div>
     </div>

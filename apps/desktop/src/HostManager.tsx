@@ -31,6 +31,7 @@ import { vault, type HostInput, type HostSummary, type PasswordChange } from "./
 interface Props {
   onConnect: (session: ActiveSession) => void;
   onLock: () => void;
+  deviceKeyInFile: boolean;
 }
 
 type Mode =
@@ -38,7 +39,7 @@ type Mode =
   | { kind: "edit"; host: HostSummary | null }
   | { kind: "password"; host: HostSummary };
 
-export function HostManager({ onConnect, onLock }: Props) {
+export function HostManager({ onConnect, onLock, deviceKeyInFile }: Props) {
   const [hosts, setHosts] = useState<HostSummary[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +128,16 @@ export function HostManager({ onConnect, onLock }: Props) {
           Lock
         </Button>
       </header>
+      {deviceKeyInFile && (
+        <Alert variant="warning" className="mb-4">
+          <AlertDescription>
+            No system keyring was found, so the vault's device key is stored in a file next
+            to it. Anyone who copies the app's data folder only has to guess your PIN. Set up
+            a keyring (for example GNOME Keyring or KWallet) and Fernwerk moves the key there
+            the next time you unlock.
+          </AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="error" className="mb-4">
           <AlertDescription className="text-error">{error}</AlertDescription>

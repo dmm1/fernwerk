@@ -5,7 +5,7 @@ mod vault_cmds;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use device_key::DeviceKey;
 use host_key_prompt::HostKeyPrompter;
@@ -23,6 +23,9 @@ pub(crate) struct AppState {
     /// `Some` while unlocked. Dropping it wipes keys and passwords from memory.
     vault: Mutex<Option<Vault>>,
     device_key: DeviceKey,
+    /// Bumped on every lock. A connect that started before a lock is refused when it
+    /// finishes, so locking can't leave a session open behind the lock screen.
+    lock_epoch: AtomicU64,
 }
 
 impl AppState {
@@ -34,8 +37,10 @@ impl AppState {
         self.data_dir.join("unlock-attempts.json")
     }
 
-    /// Asks every live session to close, so locking the vault leaves nothing open.
+    /// Asks every live session to close, and refuses connects still in progress, so
+    /// locking the vault leaves nothing open.
     async fn close_sessions(&self) {
+        self.lock_epoch.fetch_add(1, Ordering::SeqCst);
         let senders: Vec<_> = self.sessions.lock().await.values().cloned().collect();
         for tx in senders {
             let _ = tx.send(Command::Close).await;
@@ -55,12 +60,22 @@ impl AppState {
         opts: ConnectOptions,
         on_event: Channel<Event>,
     ) -> Result<u32, String> {
+        let epoch = self.lock_epoch.load(Ordering::SeqCst);
         let session = ssh_core::connect(opts, self.host_keys.clone())
             .await
             .map_err(|e| e.to_string())?;
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.sessions.lock().await.insert(id, session.commands);
+        {
+            // Checked under the sessions lock: `close_sessions` bumps the epoch before
+            // taking it, so either we see the bump here or it sees this session.
+            let mut sessions = self.sessions.lock().await;
+            if self.lock_epoch.load(Ordering::SeqCst) != epoch {
+                // Dropping the command sender ends the session.
+                return Err("the app was locked while connecting".into());
+            }
+            sessions.insert(id, session.commands);
+        }
 
         let state = Arc::clone(self);
         let mut events = session.events;
@@ -153,21 +168,27 @@ async fn ssh_close(state: State<'_, Arc<AppState>>, id: u32) -> Result<(), Strin
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            // Owner-only on Unix, so other local users can't list or read app files.
+            vault::ensure_private_dir(&data_dir)?;
+            let known_hosts = KnownHostsFile::new(data_dir.join("known_hosts"));
+            // Hashes host names written by older versions and fixes file permissions.
+            if let Err(e) = known_hosts.harden() {
+                tracing::warn!(error = %e, "could not harden known_hosts");
+            }
             let prompter = HostKeyPrompter::new(app.handle().clone());
             app.manage(Arc::new(AppState {
-                host_keys: Arc::new(TrustOnFirstUse::new(
-                    KnownHostsFile::new(data_dir.join("known_hosts")),
-                    prompter,
-                )),
+                host_keys: Arc::new(TrustOnFirstUse::new(known_hosts, prompter)),
                 device_key: DeviceKey::new(&data_dir),
                 data_dir,
                 next_id: AtomicU32::new(1),
                 sessions: Mutex::default(),
                 vault: Mutex::default(),
+                lock_epoch: AtomicU64::new(0),
             }));
             Ok(())
         })

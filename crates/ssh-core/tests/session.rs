@@ -5,12 +5,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use base64::{Engine, engine::general_purpose::STANDARD};
-use hmac::{Hmac, KeyInit, Mac};
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{self, Auth, Msg, Session as ServerSession};
 use russh::{Channel, ChannelId};
-use sha1::Sha1;
 use ssh_core::{
     Command, ConnectOptions, Error, Event, HostKey, HostKeyPrompt, KeyStatus, KnownHostsFile,
     TrustOnFirstUse,
@@ -208,16 +205,19 @@ async fn record_then_swap_key(path: &std::path::Path) -> (SocketAddr, SocketAddr
         .expect("first connect");
 
     let impostor = start_server(random_key()).await;
-    let contents = std::fs::read_to_string(path).unwrap();
-    std::fs::write(
-        path,
-        contents.replace(
-            &format!("]:{}", addr.port()),
-            &format!("]:{}", impostor.port()),
-        ),
-    )
-    .unwrap();
+    // Host names are hashed, so re-record the saved key in plain form for the impostor.
+    let key = recorded_key(path);
+    std::fs::write(path, format!("[127.0.0.1]:{} {key}\n", impostor.port())).unwrap();
     (addr, impostor)
+}
+
+/// The `<algorithm> <base64>` part of the only entry in `path`.
+fn recorded_key(path: &std::path::Path) -> String {
+    let contents = std::fs::read_to_string(path).unwrap();
+    let mut entries = contents.lines().filter(|l| !l.trim().is_empty());
+    let entry = entries.next().expect("one entry");
+    assert!(entries.next().is_none(), "known_hosts:\n{contents}");
+    entry.split_once(' ').unwrap().1.to_owned()
 }
 
 #[tokio::test]
@@ -259,13 +259,7 @@ async fn changed_host_key_is_replaced_when_user_accepts() {
         .await
         .expect("reconnect with replaced key");
     assert_eq!(prompts(&asked), 0);
-    let content = std::fs::read_to_string(&path).unwrap();
-    // russh starts a new file with a blank line, so count only the entries.
-    assert_eq!(
-        content.lines().filter(|l| !l.is_empty()).count(),
-        1,
-        "known_hosts:\n{content}"
-    );
+    recorded_key(&path);
 }
 
 #[tokio::test]
@@ -309,7 +303,7 @@ async fn unreadable_known_hosts_is_reported_not_as_rejection() {
 }
 
 #[tokio::test]
-async fn forgetting_removes_hashed_entries() {
+async fn host_names_are_hashed_and_forgettable() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("known_hosts");
     let addr = start_server(random_key()).await;
@@ -319,23 +313,14 @@ async fn forgetting_removes_hashed_entries() {
         .await
         .expect("first connect");
 
-    // Rewrite the entry the way `HashKnownHosts yes` does: HMAC-SHA1 of the host name.
-    let salt = [7u8; 20];
-    let mut mac = Hmac::<Sha1>::new_from_slice(&salt).unwrap();
-    mac.update(format!("[127.0.0.1]:{}", addr.port()).as_bytes());
-    let hashed = format!(
-        "|1|{}|{}",
-        STANDARD.encode(salt),
-        STANDARD.encode(mac.finalize().into_bytes())
-    );
     let contents = std::fs::read_to_string(&path).unwrap();
-    std::fs::write(
-        &path,
-        contents.replace(&format!("[127.0.0.1]:{}", addr.port()), &hashed),
-    )
-    .unwrap();
+    assert!(contents.starts_with("|1|"), "known_hosts:\n{contents}");
+    assert!(
+        !contents.contains("127.0.0.1"),
+        "host name stored in plain text"
+    );
 
-    // The hashed entry is still recognized, so no prompt.
+    // The hashed entry is recognized, so no prompt.
     let (verifier, asked) = trust_with(&path, false);
     ssh_core::connect(options(addr, PASSWORD), verifier)
         .await
@@ -352,6 +337,98 @@ async fn forgetting_removes_hashed_entries() {
         .await
         .expect("connect after forgetting hashed entry");
     assert_eq!(prompts(&asked), 1);
+}
+
+#[tokio::test]
+async fn harden_hashes_plain_entries_and_keeps_them_trusted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("known_hosts");
+    let addr = start_server(random_key()).await;
+    let other = start_server(random_key()).await;
+
+    let (verifier, _) = trust_with(&path, true);
+    ssh_core::connect(options(addr, PASSWORD), verifier)
+        .await
+        .expect("first connect");
+    // The plain, multi-host form older versions (and OpenSSH) write.
+    let key = recorded_key(&path);
+    let plain = format!(
+        "# comment\n\n[127.0.0.1]:{},[127.0.0.1]:{} {key}\n",
+        addr.port(),
+        other.port()
+    );
+    std::fs::write(&path, plain).unwrap();
+
+    KnownHostsFile::new(&path).harden().unwrap();
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    assert!(!contents.contains("127.0.0.1"), "known_hosts:\n{contents}");
+    assert_eq!(contents.matches("|1|").count(), 2, "one line per host");
+    assert!(contents.starts_with("# comment\n"));
+
+    let (verifier, asked) = trust_with(&path, false);
+    ssh_core::connect(options(addr, PASSWORD), verifier)
+        .await
+        .expect("still trusted after hashing");
+    assert_eq!(prompts(&asked), 0);
+
+    // Forgetting one host leaves the other's entry in place.
+    KnownHostsFile::new(&path)
+        .forget("127.0.0.1", addr.port())
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .matches("|1|")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn forget_removes_the_right_entry_after_comment_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("known_hosts");
+    let addr = start_server(random_key()).await;
+
+    let (verifier, _) = trust_with(&path, true);
+    ssh_core::connect(options(addr, PASSWORD), verifier)
+        .await
+        .expect("first connect");
+    let key = recorded_key(&path);
+    std::fs::write(
+        &path,
+        format!(
+            "# one\n# two\n[127.0.0.1]:{} {key}\n[127.0.0.1]:1 {key}\n",
+            addr.port()
+        ),
+    )
+    .unwrap();
+
+    KnownHostsFile::new(&path)
+        .forget("127.0.0.1", addr.port())
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        format!("# one\n# two\n[127.0.0.1]:1 {key}\n")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn known_hosts_is_private_to_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("known_hosts");
+    let addr = start_server(random_key()).await;
+    let (verifier, _) = trust_with(&path, true);
+    ssh_core::connect(options(addr, PASSWORD), verifier)
+        .await
+        .expect("first connect");
+
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
 }
 
 #[tokio::test]

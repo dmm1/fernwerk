@@ -17,6 +17,8 @@ export type VaultState = "uninitialized" | "locked" | "unlocked";
 export interface VaultStatus {
   state: VaultState;
   retryAfterSecs: number | null;
+  /** No OS keyring: the device key is in a file, so the PIN alone guards a copy. */
+  deviceKeyInFile: boolean;
 }
 
 export type UnlockResult =

@@ -220,7 +220,7 @@ function UnlockPin({ initialRetryAfter, onDone }: UnlockProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete vault?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes all saved hosts and passwords. Open sessions stay connected.
+              This permanently deletes all saved hosts, passwords and trusted host keys.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

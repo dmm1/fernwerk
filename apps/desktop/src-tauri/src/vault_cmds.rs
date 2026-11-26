@@ -17,6 +17,9 @@ use crate::AppState;
 pub struct VaultStatus {
     state: &'static str,
     retry_after_secs: Option<u64>,
+    /// The device secret is in a file rather than the OS keyring, so a copy of the
+    /// data folder can be attacked with only the PIN.
+    device_key_in_file: bool,
 }
 
 #[derive(Serialize)]
@@ -42,9 +45,11 @@ fn now() -> u64 {
 
 #[tauri::command]
 pub async fn vault_status(state: State<'_, Arc<AppState>>) -> Result<VaultStatus, String> {
+    let device_key_in_file = state.device_key.in_file();
     let status = |state, retry_after_secs| VaultStatus {
         state,
         retry_after_secs,
+        device_key_in_file,
     };
     if state.vault.lock().await.is_some() {
         return Ok(status("unlocked", None));
@@ -73,6 +78,10 @@ pub async fn vault_setup(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
+    // A vault without this file is treated as tampered with, so start it clean.
+    Throttle::default()
+        .save(&state.throttle_path())
+        .map_err(|e| e.to_string())?;
     *guard = Some(vault);
     Ok(())
 }
@@ -97,12 +106,16 @@ pub async fn vault_unlock(
 
     let secret = state.device_key.load()?;
     let path = state.vault_path();
-    let result = tauri::async_runtime::spawn_blocking(move || Vault::unlock(path, &pin, &secret))
-        .await
-        .map_err(|e| e.to_string())?;
+    let unlock_secret = secret.clone();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || Vault::unlock(path, &pin, &unlock_secret))
+            .await
+            .map_err(|e| e.to_string())?;
 
     match result {
         Ok(vault) => {
+            // Only after a successful unlock, so a wrong secret is never promoted.
+            state.device_key.move_to_keyring(&secret);
             throttle.record_success();
             let _ = throttle.save(&throttle_path);
             *guard = Some(vault);

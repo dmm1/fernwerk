@@ -16,32 +16,53 @@ export interface TerminalProps {
   /** Keystrokes and pastes, already encoded as UTF-8 bytes. */
   onInput?: (data: Uint8Array<ArrayBuffer>) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
+  /**
+   * Called when the user clicks a link in the output. Only http(s) URLs are passed
+   * on; without this prop links do nothing, since the output is untrusted.
+   */
+  onLink?: (url: string) => void;
   className?: string;
 }
 
 const encoder = new TextEncoder();
 
-export function Terminal({ ref, onInput, onResize, className }: TerminalProps) {
+function isWebUrl(text: string): boolean {
+  try {
+    const { protocol } = new URL(text);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+export function Terminal({ ref, onInput, onResize, onLink, className }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   // Keep the latest callbacks without re-creating the terminal.
-  const callbacks = useRef({ onInput, onResize });
-  callbacks.current = { onInput, onResize };
+  const callbacks = useRef({ onInput, onResize, onLink });
+  callbacks.current = { onInput, onResize, onLink };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    // Links come from the remote server. Never let xterm open them itself (that
+    // would load them inside the app); hand only web URLs to the caller.
+    const openLink = (_event: MouseEvent, text: string) => {
+      if (isWebUrl(text)) callbacks.current.onLink?.(text);
+    };
     const term = new XTerm({
       cursorBlink: true,
       fontFamily: '"Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace',
       fontSize: 14,
       scrollback: 10_000,
       allowProposedApi: true,
+      // OSC 8 hyperlinks.
+      linkHandler: { activate: openLink, allowNonHttpProtocols: false },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon(openLink));
     term.open(container);
     try {
       const webgl = new WebglAddon();

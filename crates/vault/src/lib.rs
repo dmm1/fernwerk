@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-pub use file::KdfParams;
+pub use file::{KdfParams, ensure_private_dir, write_private_file};
 pub use throttle::Throttle;
 
 /// A fresh random device secret, for the app to keep in the OS keyring.
@@ -320,6 +320,43 @@ mod tests {
             Vault::unlock(&path, "123456", SECRET),
             Err(Error::WrongPin)
         ));
+    }
+
+    #[test]
+    fn short_salt_is_corrupt_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.json");
+        Vault::create(&path, "123456", SECRET, KdfParams::insecure_for_tests()).unwrap();
+
+        let mut file: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        file["kdf"]["salt"] = "AAAA".into();
+        std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+
+        assert!(matches!(
+            Vault::unlock(&path, "123456", SECRET),
+            Err(Error::Corrupt)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn vault_file_is_private_even_over_a_stale_temp_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.json");
+        // A world-readable leftover from an interrupted write.
+        std::fs::write(dir.path().join("v.json.tmp"), b"").unwrap();
+        std::fs::set_permissions(
+            dir.path().join("v.json.tmp"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+
+        Vault::create(&path, "123456", SECRET, KdfParams::insecure_for_tests()).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

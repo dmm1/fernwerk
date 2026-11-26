@@ -36,14 +36,20 @@ export function App() {
       <UpdateBanner hasSession={session !== null} />
       <HostKeyPrompt />
       <main className="app-main">
-        {/* Locking hides a running session without disconnecting it. */}
+        {/* Locking disconnects the session; it stays visible as "Closed" after unlocking. */}
         {session && (
           <div className="layer" hidden={!unlocked}>
             <SessionView session={session} onExit={() => setSession(null)} onLock={lock} />
           </div>
         )}
         {!unlocked && <LockScreen status={status} onChange={refresh} />}
-        {unlocked && !session && <HostManager onConnect={setSession} onLock={lock} />}
+        {unlocked && !session && (
+          <HostManager
+            onConnect={setSession}
+            onLock={lock}
+            deviceKeyInFile={status.deviceKeyInFile}
+          />
+        )}
       </main>
     </div>
   );
